@@ -1,0 +1,65 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.CONF:/etc/nginx/nginx.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+  app:
+    build: .
+    # Published so you can curl the app directly, bypassing nginx.
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_ADDR: ${REDIS_ADDR}
+      BASE_URL: ${BASE_URL:-http://localhost}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: urlshortener
+    ports:
+      - "5432:5432"
+    volumes:
+      # Only runs when pgdata is empty. Changed the schema? docker compose down -v
+      - ./base/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d urlshortener"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:
